@@ -385,6 +385,18 @@
     </div>
   </div>
 
+  <!-- HWID Modal -->
+  <div class="modal" id="hwidModal">
+    <div class="modal-content">
+      <h2>HWID пользователя</h2>
+      <p id="hwidDisplay" style="word-break: break-all; background: #f0f0f0; padding: 10px; border-radius: 5px; font-family: monospace;"></p>
+      <div class="modal-buttons">
+        <button class="btn-confirm" onclick="copyHWID()">Копировать</button>
+        <button class="btn-cancel" onclick="closeModal('hwidModal')">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let currentToken = null;
     let currentBanUserId = null;
@@ -439,7 +451,9 @@
             <td>${user.id}</td>
             <td>${user.username}</td>
             <td>${user.email || '-'}</td>
-            <td title="${user.hwid || 'Нет'}">${hwidDisplay}</td>
+            <td>
+              ${user.hwid ? `<span style="cursor: pointer; color: #667eea; text-decoration: underline;" onclick="showHWIDModal('${user.hwid}')">${hwidDisplay}</span>` : 'Нет'}
+            </td>
             <td><span class="status-badge ${statusClass}">${status}</span></td>
             <td>${new Date(user.created_at).toLocaleDateString('ru-RU')}</td>
             <td>
@@ -604,6 +618,18 @@
       } catch (err) {
         console.error('Error resetting HWID:', err);
       }
+    }
+
+    function showHWIDModal(hwid) {
+      document.getElementById('hwidDisplay').textContent = hwid;
+      document.getElementById('hwidModal').classList.add('active');
+    }
+
+    function copyHWID() {
+      const hwid = document.getElementById('hwidDisplay').textContent;
+      navigator.clipboard.writeText(hwid).then(() => {
+        alert('HWID скопирован в буфер обмена!');
+      });
     }
 
     async function loadLogs() {
