@@ -39,9 +39,20 @@ db.serialize(() => {
       username TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
       email TEXT,
+      hwid TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       banned INTEGER DEFAULT 0,
-      ban_reason TEXT
+      ban_reason TEXT,
+      hwid_banned INTEGER DEFAULT 0
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS hwid_bans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hwid TEXT UNIQUE NOT NULL,
+      reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -149,7 +160,7 @@ app.post('/api/auth/register', async (req, res) => {
 // User login
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, hwid } = req.body;
 
     const rows = await promiseDb('SELECT * FROM users WHERE username = ?', [username]);
     
@@ -163,12 +174,32 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ error: `Account banned: ${user.ban_reason || 'No reason provided'}` });
     }
 
+    // Проверка HWID бана
+    if (hwid) {
+      const hwidBanRows = await promiseDb('SELECT * FROM hwid_bans WHERE hwid = ?', [hwid]);
+      if (hwidBanRows.length) {
+        return res.status(403).json({ error: `HWID banned: ${hwidBanRows[0].reason || 'No reason provided'}` });
+      }
+    }
+
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid password' });
     }
 
-    const token = jwt.sign({ username, role: 'user' }, JWT_SECRET, { expiresIn: '7d' });
+    // Проверка HWID - если уже есть другой HWID, отклоняем
+    if (hwid) {
+      if (user.hwid && user.hwid !== hwid) {
+        return res.status(403).json({ error: 'This account is already registered on another computer' });
+      }
+
+      // Если HWID новый, сохраняем его
+      if (!user.hwid || user.hwid !== hwid) {
+        await promiseDbRun('UPDATE users SET hwid = ? WHERE id = ?', [hwid, user.id]);
+      }
+    }
+
+    const token = jwt.sign({ username, role: 'user', hwid }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, username });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -183,7 +214,7 @@ app.get('/api/auth/verify', verifyUser, (req, res) => {
 // Admin: Get all users
 app.get('/api/admin/users', verifyAdmin, async (req, res) => {
   try {
-    const users = await promiseDb('SELECT id, username, email, created_at, banned, ban_reason FROM users');
+    const users = await promiseDb('SELECT id, username, email, hwid, created_at, banned, ban_reason, hwid_banned FROM users');
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -290,6 +321,72 @@ app.get('/api/admin/logs', verifyAdmin, async (req, res) => {
   try {
     const logs = await promiseDb('SELECT * FROM admin_logs ORDER BY created_at DESC LIMIT 100');
     res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Ban by HWID
+app.post('/api/admin/hwid/:hwid/ban', verifyAdmin, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const hwid = req.params.hwid;
+
+    await promiseDbRun(
+      'INSERT OR IGNORE INTO hwid_bans (hwid, reason) VALUES (?, ?)',
+      [hwid, reason || 'No reason provided']
+    );
+
+    // Log action
+    await promiseDbRun(
+      'INSERT INTO admin_logs (action, username) VALUES (?, ?)',
+      [`Banned HWID: ${hwid}`, 'admin']
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Unban by HWID
+app.post('/api/admin/hwid/:hwid/unban', verifyAdmin, async (req, res) => {
+  try {
+    const hwid = req.params.hwid;
+
+    await promiseDbRun('DELETE FROM hwid_bans WHERE hwid = ?', [hwid]);
+
+    // Log action
+    await promiseDbRun(
+      'INSERT INTO admin_logs (action, username) VALUES (?, ?)',
+      [`Unbanned HWID: ${hwid}`, 'admin']
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Reset HWID for user
+app.post('/api/admin/users/:id/reset-hwid', verifyAdmin, async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const user = await promiseDb('SELECT username FROM users WHERE id = ?', [userId]);
+    
+    await promiseDbRun(
+      'UPDATE users SET hwid = NULL WHERE id = ?',
+      [userId]
+    );
+
+    // Log action
+    await promiseDbRun(
+      'INSERT INTO admin_logs (action, username) VALUES (?, ?)',
+      [`Reset HWID for user: ${user[0].username}`, 'admin']
+    );
+
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

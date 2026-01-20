@@ -355,6 +355,7 @@
               <th>ID</th>
               <th>Имя</th>
               <th>Email</th>
+              <th>HWID</th>
               <th>Статус</th>
               <th>Дата создания</th>
               <th>Действия</th>
@@ -432,15 +433,19 @@
           const row = document.createElement('tr');
           const status = user.banned ? 'Забанен' : 'Активен';
           const statusClass = user.banned ? 'status-banned' : 'status-active';
+          const hwidDisplay = user.hwid ? user.hwid.substring(0, 12) + '...' : 'Нет';
 
           row.innerHTML = `
             <td>${user.id}</td>
             <td>${user.username}</td>
             <td>${user.email || '-'}</td>
+            <td title="${user.hwid || 'Нет'}">${hwidDisplay}</td>
             <td><span class="status-badge ${statusClass}">${status}</span></td>
             <td>${new Date(user.created_at).toLocaleDateString('ru-RU')}</td>
             <td>
               ${!user.banned ? `<button class="action-btn ban-btn" onclick="openBanModal(${user.id})">Забанить</button>` : `<button class="action-btn unban-btn" onclick="unbanUser(${user.id})">Разбанить</button>`}
+              ${user.hwid ? `<button class="action-btn ban-btn" onclick="banHWID('${user.hwid}', '${user.username}')">Бан HWID</button>` : ''}
+              ${user.hwid ? `<button class="action-btn" style="background: #9c27b0; color: white;" onclick="resetHWID(${user.id}, '${user.username}')">Сбросить HWID</button>` : ''}
               <button class="action-btn delete-btn" onclick="deleteUser(${user.id})">Удалить</button>
             </td>
           `;
@@ -552,6 +557,52 @@
         }
       } catch (err) {
         console.error('Error deleting user:', err);
+      }
+    }
+
+    async function banHWID(hwid, username) {
+      const reason = prompt(`Причина бана HWID ${hwid.substring(0, 12)}...\nаккаунта ${username}:`);
+      if (reason === null) return;
+
+      try {
+        const response = await fetch(`/api/admin/hwid/${encodeURIComponent(hwid)}/ban`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentToken}`
+          },
+          body: JSON.stringify({ reason })
+        });
+
+        if (response.ok) {
+          alert('HWID забанен!');
+          loadUsers();
+          loadLogs();
+        }
+      } catch (err) {
+        console.error('Error banning HWID:', err);
+      }
+    }
+
+    async function resetHWID(userId, username) {
+      if (!confirm(`Сбросить HWID для ${username}?\nЭто позволит использовать аккаунт на другом компьютере.`)) return;
+
+      try {
+        const response = await fetch(`/api/admin/users/${userId}/reset-hwid`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentToken}`
+          }
+        });
+
+        if (response.ok) {
+          alert('HWID сброшен!');
+          loadUsers();
+          loadLogs();
+        }
+      } catch (err) {
+        console.error('Error resetting HWID:', err);
       }
     }
 
