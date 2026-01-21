@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import { exec } from 'child_process';
 
 dotenv.config();
 
@@ -37,6 +38,9 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
   if (err) console.error('Database error:', err);
   else console.log('Connected to SQLite database at', DB_PATH);
 });
+
+// Health check endpoint
+app.get('/api/health', (req, res) => res.json({ ok: true, db: DB_PATH }));
 
 // Create tables
 db.serialize(() => {
@@ -412,6 +416,20 @@ app.post('/api/admin/users/:id/reset-hwid', verifyAdmin, async (req, res) => {
 // Root route
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Admin: Export database dump (SQL)
+app.get('/api/admin/export-db', verifyAdmin, async (req, res) => {
+  try {
+    exec(`sqlite3 "${DB_PATH}" .dump`, { maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
+      if (err) return res.status(500).json({ error: stderr || err.message });
+      res.setHeader('Content-Disposition', 'attachment; filename="backup.sql"');
+      res.setHeader('Content-Type', 'text/sql');
+      res.send(stdout);
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Start server

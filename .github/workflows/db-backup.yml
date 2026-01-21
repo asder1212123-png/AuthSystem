@@ -1,0 +1,41 @@
+name: DB Backup
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # daily at midnight UTC
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq sqlite3 curl
+
+      - name: Request admin token
+        env:
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          set -e
+          TOKEN=$(curl -s -X POST "https://authsystem-uors.onrender.com/api/admin/login" -H "Content-Type: application/json" -d "{\"password\":\"$ADMIN_PASSWORD\"}" | jq -r .token)
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "Failed to get token" >&2
+            exit 1
+          fi
+          echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: Download DB dump
+        env:
+          TOKEN: ${{ env.TOKEN }}
+        run: |
+          set -e
+          TIMESTAMP=$(date +"%F_%H%M%S")
+          curl -s -H "Authorization: Bearer $TOKEN" "https://authsystem-uors.onrender.com/api/admin/export-db" -o backup_$TIMESTAMP.sql
+          ls -la .
+
+      - name: Upload backup as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-backup
+          path: backup_*.sql
