@@ -94,11 +94,69 @@ Response:
 4. Build command: `npm install`
 5. Start command: `npm start`
 
+> Важно: по умолчанию файловая система контейнера у большинства хостов временная (ephemeral). Чтобы аккаунты сохранялись между перезапусками, необходимо использовать persistent disk (монтируемый диск) или managed базу данных.
+
+#### Пример с Persistent Disk на Render
+1. В панели Render откройте ваш сервис → **Disks** → **Add Persistent Disk**.
+2. Выберите размер и укажите точку монтирования, например `/data`.
+3. В Settings → Environment → добавьте переменную окружения:
+   - `DB_PATH = /data/auth.db`
+4. Перезапустите сервис — `auth.db` будет сохраняться на постоянном диске.
+
 ### Вариант 3: Vercel
 
 1. Зарегистрируйтесь на https://vercel.com
 2. Импортируйте проект
 3. Настройте переменные окружения в Settings
+
+### Docker / Docker Compose
+
+Если вы запускаете контейнеры Docker, можно примонтировать папку хоста как volume, чтобы хранить `auth.db` вне контейнера:
+
+- Docker run пример:
+
+```bash
+# Примонтировать папку C:\data на Windows в /data контейнера
+docker run -v C:\data:/data -e DB_PATH=/data/auth.db your-image
+```
+
+- docker-compose пример:
+
+```yaml
+services:
+  authsystem:
+    image: your-image
+    volumes:
+      - ./data:/data
+    environment:
+      - DB_PATH=/data/auth.db
+    ports:
+      - "5000:5000"
+```
+
+Этот подход гарантирует, что `auth.db` останется между перезапусками контейнера.
+
+### Быстрый старт с Docker
+
+1. Собрать образ и запустить через docker-compose:
+
+```bash
+docker-compose up --build -d
+```
+
+2. Проверить логи и наличие файла БД в папке `./data`:
+
+```bash
+docker-compose logs -f authsystem
+ls -la ./data
+```
+
+3. Перезапустить контейнер (данные сохранятся):
+
+```bash
+docker-compose down
+docker-compose up -d
+```
 
 ## Конфигурация
 

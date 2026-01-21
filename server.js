@@ -13,6 +13,13 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Database path (override with DB_PATH env var to use persistent storage)
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'auth.db');
+const DB_DIR = path.dirname(DB_PATH);
+if (!fs.existsSync(DB_DIR)) {
+  fs.mkdirSync(DB_DIR, { recursive: true });
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
@@ -26,9 +33,9 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Database setup
-const db = new sqlite3.Database(path.join(__dirname, 'auth.db'), (err) => {
+const db = new sqlite3.Database(DB_PATH, (err) => {
   if (err) console.error('Database error:', err);
-  else console.log('Connected to SQLite database');
+  else console.log('Connected to SQLite database at', DB_PATH);
 });
 
 // Create tables
@@ -321,6 +328,16 @@ app.get('/api/admin/logs', verifyAdmin, async (req, res) => {
   try {
     const logs = await promiseDb('SELECT * FROM admin_logs ORDER BY created_at DESC LIMIT 100');
     res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Get HWID bans
+app.get('/api/admin/hwid-bans', verifyAdmin, async (req, res) => {
+  try {
+    const bans = await promiseDb('SELECT * FROM hwid_bans ORDER BY created_at DESC');
+    res.json(bans);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

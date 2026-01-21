@@ -334,6 +334,7 @@
 
       <div class="tabs">
         <button class="tab active" onclick="switchTab('users')">Пользователи</button>
+        <button class="tab" onclick="switchTab('bans')">Баны</button>
         <button class="tab" onclick="switchTab('logs')">Логи</button>
       </div>
 
@@ -365,6 +366,40 @@
         </table>
       </div>
 
+      <!-- Bans Tab -->
+      <div id="bans" class="tab-content">
+        <h2>Баны</h2>
+        <h3>Забаненные аккаунты</h3>
+        <div id="bannedUsersMessage"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Имя</th>
+              <th>Причина</th>
+              <th>HWID</th>
+              <th>Дата</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody id="bannedUsersList"></tbody>
+        </table>
+
+        <h3 style="margin-top:20px;">Забаненные HWID</h3>
+        <div id="bannedHWIDMessage"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>HWID</th>
+              <th>Причина</th>
+              <th>Дата</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody id="bannedHWIDList"></tbody>
+        </table>
+      </div>
+
       <!-- Logs Tab -->
       <div id="logs" class="tab-content">
         <h2>История действий</h2>
@@ -393,6 +428,18 @@
       <div class="modal-buttons">
         <button class="btn-confirm" onclick="copyHWID()">Копировать</button>
         <button class="btn-cancel" onclick="closeModal('hwidModal')">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Modal -->
+  <div class="modal" id="confirmModal">
+    <div class="modal-content">
+      <h2 id="confirmTitle">Подтвердите действие</h2>
+      <p id="confirmMessage"></p>
+      <div class="modal-buttons">
+        <button class="btn-confirm" onclick="confirmUnban()">Подтвердить</button>
+        <button class="btn-cancel" onclick="closeConfirmModal()">Отмена</button>
       </div>
     </div>
   </div>
@@ -457,7 +504,7 @@
             <td><span class="status-badge ${statusClass}">${status}</span></td>
             <td>${new Date(user.created_at).toLocaleDateString('ru-RU')}</td>
             <td>
-              ${!user.banned ? `<button class="action-btn ban-btn" onclick="openBanModal(${user.id})">Забанить</button>` : `<button class="action-btn unban-btn" onclick="unbanUser(${user.id})">Разбанить</button>`}
+              ${!user.banned ? `<button class="action-btn ban-btn" onclick="openBanModal(${user.id})">Забанить</button>` : `<button class="action-btn unban-btn" onclick="openUnbanUserModal(${user.id}, '${user.username}')">Разбанить</button>`}
               ${user.hwid ? `<button class="action-btn ban-btn" onclick="banHWID('${user.hwid}', '${user.username}')">Бан HWID</button>` : ''}
               ${user.hwid ? `<button class="action-btn" style="background: #9c27b0; color: white;" onclick="resetHWID(${user.id}, '${user.username}')">Сбросить HWID</button>` : ''}
               <button class="action-btn delete-btn" onclick="deleteUser(${user.id})">Удалить</button>
@@ -540,19 +587,56 @@
       }
     }
 
-    async function unbanUser(userId) {
-      try {
-        const response = await fetch(`/api/admin/users/${userId}/unban`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${currentToken}` }
-        });
+    let pendingUnban = null;
 
-        if (response.ok) {
-          loadUsers();
-          loadLogs();
+    function openUnbanUserModal(userId, username) {
+      pendingUnban = { type: 'user', id: userId, username };
+      document.getElementById('confirmTitle').textContent = 'Разбанить пользователя';
+      document.getElementById('confirmMessage').textContent = `Вы уверены, что хотите разбанить пользователя ${username}?`;
+      document.getElementById('confirmModal').classList.add('active');
+    }
+
+    function openUnbanHWIDModal(hwid) {
+      pendingUnban = { type: 'hwid', hwid };
+      document.getElementById('confirmTitle').textContent = 'Разбанить HWID';
+      document.getElementById('confirmMessage').textContent = `Вы уверены, что хотите разбанить HWID ${hwid}?`;
+      document.getElementById('confirmModal').classList.add('active');
+    }
+
+    function closeConfirmModal() {
+      pendingUnban = null;
+      document.getElementById('confirmModal').classList.remove('active');
+    }
+
+    async function confirmUnban() {
+      try {
+        if (!pendingUnban) return closeConfirmModal();
+        if (pendingUnban.type === 'user') {
+          const response = await fetch(`/api/admin/users/${pendingUnban.id}/unban`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${currentToken}` }
+          });
+          if (response.ok) {
+            closeConfirmModal();
+            loadBans();
+            loadUsers();
+            loadLogs();
+          }
+        } else if (pendingUnban.type === 'hwid') {
+          const response = await fetch(`/api/admin/hwid/${encodeURIComponent(pendingUnban.hwid)}/unban`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${currentToken}` }
+          });
+          if (response.ok) {
+            closeConfirmModal();
+            loadBans();
+            loadUsers();
+            loadLogs();
+          }
         }
       } catch (err) {
-        console.error('Error unbanning user:', err);
+        console.error('Error confirming unban:', err);
+        closeConfirmModal();
       }
     }
 
@@ -665,6 +749,7 @@
 
       if (tabName === 'logs') loadLogs();
       if (tabName === 'users') loadUsers();
+      if (tabName === 'bans') loadBans();
     }
 
     function logout() {
@@ -672,6 +757,76 @@
       document.getElementById('adminPanel').classList.remove('active');
       document.getElementById('loginScreen').style.display = 'block';
       document.getElementById('adminPassword').value = '';
+    }
+
+    // Load banned users and HWID bans
+    async function loadBans() {
+      try {
+        // Banned users (filter from users API)
+        const usersResp = await fetch('/api/admin/users', {
+          headers: { 'Authorization': `Bearer ${currentToken}` }
+        });
+        const users = await usersResp.json();
+        const bannedUsers = users.filter(u => u.banned);
+        const bannedUsersTbody = document.getElementById('bannedUsersList');
+        bannedUsersTbody.innerHTML = '';
+
+        bannedUsers.forEach(u => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${u.id}</td>
+            <td>${u.username}</td>
+            <td>${u.ban_reason || '-'}</td>
+            <td>${u.hwid || '-'}</td>
+            <td>${new Date(u.created_at).toLocaleString('ru-RU')}</td>
+            <td>
+              <button class="action-btn unban-btn" onclick="openUnbanUserModal(${u.id}, '${u.username}')">Разбанить</button>
+              ${u.hwid ? `<button class="action-btn ban-btn" onclick="banHWID('${u.hwid}','${u.username}')">Бан HWID</button>` : ''}
+            </td>
+          `;
+          bannedUsersTbody.appendChild(row);
+        });
+
+        // HWID bans
+        const hwidResp = await fetch('/api/admin/hwid-bans', {
+          headers: { 'Authorization': `Bearer ${currentToken}` }
+        });
+        const hwidBans = await hwidResp.json();
+        const hwidTbody = document.getElementById('bannedHWIDList');
+        hwidTbody.innerHTML = '';
+
+        hwidBans.forEach(b => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td style="font-family: monospace;">${b.hwid}</td>
+            <td>${b.reason || '-'}</td>
+            <td>${new Date(b.created_at).toLocaleString('ru-RU')}</td>
+            <td>
+              <button class="action-btn unban-btn" onclick="openUnbanHWIDModal('${b.hwid}')">Разбанить HWID</button>
+            </td>
+          `;
+          hwidTbody.appendChild(row);
+        });
+      } catch (err) {
+        console.error('Error loading bans:', err);
+      }
+    }
+
+    async function unbanHWID(hwidEncoded) {
+      try {
+        const hwid = decodeURIComponent(hwidEncoded);
+        const response = await fetch(`/api/admin/hwid/${encodeURIComponent(hwid)}/unban`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${currentToken}` }
+        });
+        if (response.ok) {
+          loadBans();
+          loadUsers();
+          loadLogs();
+        }
+      } catch (err) {
+        console.error('Error unbanning HWID:', err);
+      }
     }
   </script>
 </body>
